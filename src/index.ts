@@ -197,7 +197,7 @@ export function generateManifest(options: ManifestOptions = {}): Plugin {
     }
 
     return {
-        name: "kebrin-generate-manifest",
+        name: "vite-plugin-pwa-manifest",
         apply: () => true,
 
         configResolved(c) {
