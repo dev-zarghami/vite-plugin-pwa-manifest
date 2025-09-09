@@ -1,27 +1,27 @@
 {
-  "name": "vite-plugin-robots-txt",
+  "name": "vite-plugin-pwa-manifest",
   "version": "0.1.0",
-  "description": "Generate robots.txt for Vite with env-aware policies and dev no-store preview.",
+  "description": "Vite plugin to generate a PWA web app manifest with env-aware metadata and a dev no-store preview route.",
   "keywords": [
     "vite",
     "plugin",
-    "robots.txt",
+    "pwa",
+    "manifest",
+    "service-worker",
     "sveltekit",
-    "seo"
+    "vue",
+    "react"
   ],
   "license": "MIT",
   "author": "Kebrin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dev-zarghami/vite-plugin-robots-txt.git"
+    "url": "git+https://github.com/dev-zarghami/vite-plugin-pwa-manifest.git"
   },
   "bugs": {
-    "url": "https://github.com/dev-zarghami/vite-plugin-robots-txt/issues"
+    "url": "https://github.com/dev-zarghami/vite-plugin-pwa-manifest/issues"
   },
-  "publishConfig": {
-    "access": "public"
-  },
-  "homepage": "https://github.com/dev-zarghami/vite-plugin-robots-txt#readme",
+  "homepage": "https://github.com/dev-zarghami/vite-plugin-pwa-manifest#readme",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -54,5 +54,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
