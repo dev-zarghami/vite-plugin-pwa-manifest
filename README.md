@@ -17,7 +17,6 @@
 - Warns if you don’t provide a maskable icon (for better Android support)
 
 ---
-
 ## 📦 Installation
 
 ```bash
