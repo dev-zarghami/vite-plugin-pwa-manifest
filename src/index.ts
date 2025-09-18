@@ -4,7 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import type {Plugin, ResolvedConfig, ViteDevServer} from "vite";
 
-// ---- Helpers ---------------------------------------------------------------
+// ----------------- helpers -----------------
 
 const NOW_ISO = () => new Date().toISOString();
 
@@ -23,14 +23,14 @@ function createLogger(scope: string) {
 function runCommand(cmd: string): string | null {
     try {
         const {execSync} = require("node:child_process");
-        return execSync(cmd, {stdio: ["ignore", "pipe", "ignore"]}).toString().trim() || null;
+        return (
+            execSync(cmd, {stdio: ["ignore", "pipe", "ignore"]})
+                .toString()
+                .trim() || null
+        );
     } catch {
         return null;
     }
-}
-
-function resolveOutputPath(dir: string, filename: string) {
-    return path.resolve(dir, filename);
 }
 
 async function writeFileIfChanged(filePath: string, payload: string) {
@@ -45,9 +45,13 @@ async function writeFileIfChanged(filePath: string, payload: string) {
     return true;
 }
 
+function hashETag(s: string) {
+    return `W/"${crypto.createHash("sha1").update(s).digest("hex")}"`;
+}
+
 const ensureLeadingSlash = (s: string) => (s.startsWith("/") ? s : `/${s}`);
 
-// ---- Types -----------------------------------------------------------------
+// ----------------- types -----------------
 
 export type ManifestIcon = {
     src: string;
@@ -65,8 +69,8 @@ export type Screenshot = {
 };
 
 export type ManifestOptions = {
-    outputDir?: string | false;
-    filename?: string;
+    outputDir?: string | false; // optional mirror to disk
+    filename?: string; // default "manifest.json"
 
     name?: string;
     short_name?: string;
@@ -91,14 +95,19 @@ export type ManifestOptions = {
 
     extra?: Record<string, unknown>;
     includeBuildMeta?: boolean;
-    transform?: (json: Record<string, unknown>, ctx: { mode: "development" | "production" }) => Record<string, unknown>;
+    transform?: (
+        json: Record<string, unknown>,
+        ctx: { mode: "development" | "production" },
+    ) => Record<string, unknown>;
 };
 
-// ---- Internals -------------------------------------------------------------
+// ----------------- internals -----------------
 
 function readPkgVersion(): string | null {
     try {
-        const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"));
+        const pkg = JSON.parse(
+            fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"),
+        );
         return typeof pkg.version === "string" ? pkg.version : null;
     } catch {
         return null;
@@ -116,13 +125,26 @@ function gitShort(): string | null {
 
 function defaultIcons(): ManifestIcon[] {
     return [
-        {src: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable"},
-        {src: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable"},
+        {
+            src: "/icons/icon-192x192.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any maskable",
+        },
+        {
+            src: "/icons/icon-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+        },
     ];
 }
 
 function normalizeIcons(icons: ManifestIcon[] | undefined): ManifestIcon[] {
-    const list = (icons ?? defaultIcons()).map((i) => ({...i, src: ensureLeadingSlash(i.src)}));
+    const list = (icons ?? defaultIcons()).map((i) => ({
+        ...i,
+        src: ensureLeadingSlash(i.src),
+    }));
     const seen = new Set<string>();
     return list.filter((i) => {
         const key = `${i.src}|${i.sizes}|${i.purpose ?? ""}`;
@@ -136,18 +158,14 @@ function hasMaskableIcon(icons?: ManifestIcon[]) {
     return (icons ?? []).some((i) => (i.purpose ?? "").includes("maskable"));
 }
 
-function hashETag(s: string) {
-    return `"W/${crypto.createHash("sha1").update(s).digest("hex")}"`;
-}
-
 function buildManifest(opts: ManifestOptions, mode: "development" | "production") {
     const pkgVersion = readPkgVersion();
     const vcsVersion = gitShort();
     const theme = opts.theme_color ?? "#0a131b";
 
     const base: Record<string, unknown> = {
-        lang: opts.lang ?? "fa",
-        dir: opts.dir ?? "rtl",
+        lang: opts.lang ?? "en",
+        dir: opts.dir ?? "ltr",
         name: opts.name ?? "My App",
         short_name: opts.short_name ?? "App",
         description: opts.description ?? undefined,
@@ -179,11 +197,12 @@ function buildManifest(opts: ManifestOptions, mode: "development" | "production"
     return merged;
 }
 
-// ---- Plugin ----------------------------------------------------------------
+// ----------------- plugin -----------------
 
 export function generateManifest(options: ManifestOptions = {}): Plugin {
     const log = createLogger("manifest");
     const filename = options.filename ?? "manifest.json";
+
     let root = process.cwd();
     let config: ResolvedConfig;
     let lastJSON = "{}\n";
@@ -191,7 +210,9 @@ export function generateManifest(options: ManifestOptions = {}): Plugin {
     function serialize(mode: "development" | "production") {
         const json = buildManifest(options, mode);
         if (!hasMaskableIcon(json.icons as ManifestIcon[])) {
-            log.warn("No maskable icon found; add purpose: 'maskable' for better Android PWA rendering.");
+            log.warn(
+                "No maskable icon found; add purpose: 'maskable' for better Android PWA rendering.",
+            );
         }
         return JSON.stringify(json, null, 2) + "\n";
     }
@@ -210,7 +231,7 @@ export function generateManifest(options: ManifestOptions = {}): Plugin {
             lastJSON = serialize("production");
 
             if (options.outputDir) {
-                const outPath = resolveOutputPath(path.resolve(root, options.outputDir), filename);
+                const outPath = path.resolve(root, options.outputDir, filename);
                 writeFileIfChanged(outPath, lastJSON).then((changed) => {
                     if (changed) log.info("Manifest mirrored to disk", {file: outPath});
                 });
@@ -232,8 +253,14 @@ export function generateManifest(options: ManifestOptions = {}): Plugin {
                 const payload = serialize("development");
                 const etag = hashETag(payload);
 
-                res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
-                res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+                res.setHeader(
+                    "Content-Type",
+                    "application/manifest+json; charset=utf-8",
+                );
+                res.setHeader(
+                    "Cache-Control",
+                    "no-store, no-cache, must-revalidate, max-age=0",
+                );
                 res.setHeader("Pragma", "no-cache");
                 res.setHeader("Expires", "0");
                 res.setHeader("ETag", etag);

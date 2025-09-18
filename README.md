@@ -35,7 +35,7 @@ Add the plugin in your `vite.config.ts` (or `vite.config.js`):
 
 ```ts
 import { defineConfig } from "vite";
-import { generateManifest } from "vite-plugin-pwa-manifest";
+import generateManifest from "vite-plugin-pwa-manifest";
 
 export default defineConfig({
   plugins: [
