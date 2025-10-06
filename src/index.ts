@@ -1,52 +1,39 @@
 import fs from "node:fs";
-import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type {Plugin, ResolvedConfig, ViteDevServer} from "vite";
+import type {Plugin, ResolvedConfig, ViteDevServer, Logger} from "vite";
 
-// ----------------- helpers -----------------
+/**
+ * ---------------------------------------------------------------------------
+ *  Vite Plugin: vite-plugin-pwa-manifest
+ *  - Emits manifest.json in build
+ *  - Serves fresh manifest in dev with ETag + no-store
+ *  - Optional mirror to disk via outputDir (both dev & prod)
+ *  - Unified style, Vite logger, no external helpers
+ * ---------------------------------------------------------------------------
+ */
 
 const NOW_ISO = () => new Date().toISOString();
 
-function createLogger(scope: string) {
-    const tag = (level: string) => `[${scope}] ${level.toUpperCase()}`;
-    return {
-        info(msg: string, meta?: unknown) {
-            console.log(tag("info"), msg, meta ?? "");
-        },
-        warn(msg: string, meta?: unknown) {
-            console.warn(tag("warn"), msg, meta ?? "");
-        },
-    };
+function weakEtag(s: string) {
+    const hash = crypto.createHash("sha1").update(s).digest("hex");
+    return `W/"${hash}"`;
 }
 
-function runCommand(cmd: string): string | null {
+async function writeFileIfChanged(filePath: string, payload: string, logger: Logger) {
     try {
-        const {execSync} = require("node:child_process");
-        return (
-            execSync(cmd, {stdio: ["ignore", "pipe", "ignore"]})
-                .toString()
-                .trim() || null
-        );
-    } catch {
-        return null;
-    }
-}
-
-async function writeFileIfChanged(filePath: string, payload: string) {
-    try {
-        const existing = await fsp.readFile(filePath, "utf8");
-        if (existing === payload) return false;
+        const existing = await fs.promises.readFile(filePath, "utf8");
+        if (existing === payload) {
+            logger.info?.(`[manifest] no changes: ${filePath}`);
+            return false;
+        }
     } catch {
         // ignore
     }
-    await fsp.mkdir(path.dirname(filePath), {recursive: true});
-    await fsp.writeFile(filePath, payload, "utf8");
+    await fs.promises.mkdir(path.dirname(filePath), {recursive: true});
+    await fs.promises.writeFile(filePath, payload, "utf8");
+    logger.info(`[manifest] wrote ${filePath}`);
     return true;
-}
-
-function hashETag(s: string) {
-    return `W/"${crypto.createHash("sha1").update(s).digest("hex")}"`;
 }
 
 const ensureLeadingSlash = (s: string) => (s.startsWith("/") ? s : `/${s}`);
@@ -95,56 +82,42 @@ export type ManifestOptions = {
 
     extra?: Record<string, unknown>;
     includeBuildMeta?: boolean;
-    transform?: (
-        json: Record<string, unknown>,
-        ctx: { mode: "development" | "production" },
-    ) => Record<string, unknown>;
+    transform?: (json: Record<string, unknown>, ctx: { mode: "development" | "production" }) => Record<string, unknown>;
 };
 
 // ----------------- internals -----------------
 
 function readPkgVersion(): string | null {
     try {
-        const pkg = JSON.parse(
-            fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"),
-        );
+        const pkg = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), "package.json"), "utf-8"));
         return typeof pkg.version === "string" ? pkg.version : null;
     } catch {
         return null;
     }
 }
 
+function run(cmd: string): string | null {
+    try {
+        const {execSync} = require("node:child_process");
+        return execSync(cmd, {stdio: ["ignore", "pipe", "ignore"]}).toString().trim() || null;
+    } catch {
+        return null;
+    }
+}
+
 function gitShort(): string | null {
-    return (
-        runCommand("git describe --tags --exact-match") ||
-        runCommand("git describe --tags --always") ||
-        runCommand("git rev-parse --short HEAD") ||
-        null
-    );
+    return run("git describe --tags --exact-match") || run("git describe --tags --always") || run("git rev-parse --short HEAD") || null;
 }
 
 function defaultIcons(): ManifestIcon[] {
     return [
-        {
-            src: "/icons/icon-192x192.png",
-            sizes: "192x192",
-            type: "image/png",
-            purpose: "any maskable",
-        },
-        {
-            src: "/icons/icon-512x512.png",
-            sizes: "512x512",
-            type: "image/png",
-            purpose: "any maskable",
-        },
+        {src: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable"},
+        {src: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable"},
     ];
 }
 
 function normalizeIcons(icons: ManifestIcon[] | undefined): ManifestIcon[] {
-    const list = (icons ?? defaultIcons()).map((i) => ({
-        ...i,
-        src: ensureLeadingSlash(i.src),
-    }));
+    const list = (icons ?? defaultIcons()).map((i) => ({...i, src: ensureLeadingSlash(i.src)}));
     const seen = new Set<string>();
     return list.filter((i) => {
         const key = `${i.src}|${i.sizes}|${i.purpose ?? ""}`;
@@ -188,31 +161,27 @@ function buildManifest(opts: ManifestOptions, mode: "development" | "production"
         base.pkgVersion = pkgVersion ?? undefined;
         base.version = vcsVersion ?? pkgVersion ?? undefined;
         base.buildTime = NOW_ISO();
+        base.mode = mode;
     }
 
     let merged = {...base, ...(opts.extra ?? {})};
-    if (opts.transform) {
-        merged = opts.transform(merged, {mode});
-    }
+    if (opts.transform) merged = opts.transform(merged, {mode});
     return merged;
 }
 
 // ----------------- plugin -----------------
 
 export function generateManifest(options: ManifestOptions = {}): Plugin {
-    const log = createLogger("manifest");
     const filename = options.filename ?? "manifest.json";
 
-    let root = process.cwd();
-    let config: ResolvedConfig;
+    let config!: ResolvedConfig;
+    let logger!: Logger;
     let lastJSON = "{}\n";
 
     function serialize(mode: "development" | "production") {
         const json = buildManifest(options, mode);
         if (!hasMaskableIcon(json.icons as ManifestIcon[])) {
-            log.warn(
-                "No maskable icon found; add purpose: 'maskable' for better Android PWA rendering.",
-            );
+            logger.warn(`[manifest] No maskable icon found; add purpose: 'maskable' for better Android rendering.`);
         }
         return JSON.stringify(json, null, 2) + "\n";
     }
@@ -223,44 +192,31 @@ export function generateManifest(options: ManifestOptions = {}): Plugin {
 
         configResolved(c) {
             config = c;
-            root = c.root ?? process.cwd();
+            logger = c.logger;
             lastJSON = serialize(c.command === "serve" ? "development" : "production");
         },
 
-        buildStart() {
+        async buildStart() {
             lastJSON = serialize("production");
-
             if (options.outputDir) {
-                const outPath = path.resolve(root, options.outputDir, filename);
-                writeFileIfChanged(outPath, lastJSON).then((changed) => {
-                    if (changed) log.info("Manifest mirrored to disk", {file: outPath});
-                });
+                const outPath = path.resolve(config.root ?? process.cwd(), options.outputDir, filename);
+                await writeFileIfChanged(outPath, lastJSON, logger);
             }
         },
 
         generateBundle() {
-            this.emitFile({
-                type: "asset",
-                fileName: filename,
-                source: lastJSON,
-            });
-            log.info("Manifest emitted", {file: filename});
+            this.emitFile({type: "asset", fileName: filename, source: lastJSON});
+            logger.info(`[manifest] emitted ${filename}`);
         },
 
         configureServer(server: ViteDevServer) {
             const route = `/${filename}`;
             server.middlewares.use(route, (req, res) => {
                 const payload = serialize("development");
-                const etag = hashETag(payload);
+                const etag = weakEtag(payload);
 
-                res.setHeader(
-                    "Content-Type",
-                    "application/manifest+json; charset=utf-8",
-                );
-                res.setHeader(
-                    "Cache-Control",
-                    "no-store, no-cache, must-revalidate, max-age=0",
-                );
+                res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+                res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
                 res.setHeader("Pragma", "no-cache");
                 res.setHeader("Expires", "0");
                 res.setHeader("ETag", etag);
@@ -270,10 +226,9 @@ export function generateManifest(options: ManifestOptions = {}): Plugin {
                     res.end();
                     return;
                 }
-
                 res.end(payload);
             });
-            log.info(`dev route mounted → ${route} (no-store)`);
+            logger.info(`[manifest] dev route mounted → ${route} (no-store)`);
         },
     };
 }
