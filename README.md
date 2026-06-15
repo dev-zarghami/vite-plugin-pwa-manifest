@@ -3,105 +3,144 @@
 [![npm version](https://img.shields.io/npm/v/vite-plugin-pwa-manifest.svg)](https://www.npmjs.com/package/vite-plugin-pwa-manifest)
 [![license](https://img.shields.io/github/license/dev-zarghami/vite-plugin-pwa-manifest.svg)](LICENSE)
 
-> Vite plugin to generate a **Progressive Web App (PWA) manifest** with env-aware metadata and a dev no-store preview route.
+> Generate a **PWA web app manifest** for any Vite app — env-aware build metadata, a fully-typed config, and a no-store dev preview that honors your Vite `base`. Zero dependencies, ESM + CJS.
 
 ---
 
-## ✨ Features
+## Features
 
-- Generates a valid `manifest.json` automatically at build time
-- Mirrors manifest to disk (`outputDir`) for static hosting/CDNs
-- Serves manifest in **dev mode** with `Cache-Control: no-store`
-- Adds build metadata (version, git commit, timestamp) out of the box
-- Flexible `transform` hook to fully customize the manifest JSON
-- Warns if you don’t provide a maskable icon (for better Android support)
+- 🧾 Generates a valid `manifest.json` at build time (emitted to your build `outDir`).
+- 💾 Optional on-disk **mirror** (`outputDir`) for static hosting / CDNs — written only when changed.
+- 🧪 **Dev preview** with `no-store` + weak `ETag`/`304`, served at the correct route under a custom `base`.
+- 🏷️ Build metadata out of the box: `version` (git tag/commit), `pkgVersion`, `buildTime`, `mode`.
+- 🎛️ Full `transform(json, { mode })` hook for complete control.
+- 🖼️ Icon normalization + de-duplication, with a one-time warning when no maskable icon is present.
+- 🟢 Zero runtime dependencies.
 
 ---
-## 📦 Installation
+
+## Installation
 
 ```bash
-npm install vite-plugin-pwa-manifest --save-dev
-# or
-yarn add -D vite-plugin-pwa-manifest
-# or
-pnpm add -D vite-plugin-pwa-manifest
+npm i -D vite-plugin-pwa-manifest
+# or: pnpm add -D vite-plugin-pwa-manifest
+# or: yarn add -D vite-plugin-pwa-manifest
 ```
+
+Requires **Node ≥ 18** and **Vite ≥ 4**.
 
 ---
 
-## 🚀 Usage
-
-Add the plugin in your `vite.config.ts` (or `vite.config.js`):
+## Usage
 
 ```ts
-import { defineConfig } from "vite";
-import generateManifest from "vite-plugin-pwa-manifest";
+// vite.config.ts
+import { defineConfig } from 'vite';
+import generateManifest from 'vite-plugin-pwa-manifest';
 
 export default defineConfig({
   plugins: [
     generateManifest({
-      name: "My App",
-      short_name: "App",
-      description: "Example PWA with Vite",
-      theme_color: "#0a131b",
+      name: 'My App',
+      short_name: 'App',
+      description: 'Example PWA with Vite',
+      theme_color: '#0a131b',
       icons: [
-        { src: "/icons/icon-192x192.png", sizes: "192x192", type: "image/png", purpose: "any maskable" },
-        { src: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" }
+        { src: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
+        { src: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
       ],
-      includeBuildMeta: true, // adds version/git/buildTime
-      outputDir: "public",    // optional: also write manifest.json to /public
+      outputDir: 'public', // optional: also write public/manifest.json
       transform(json, { mode }) {
-        if (mode === "development") {
-          json.name = "My App (dev)";
-        }
+        if (mode === 'development') json.name = 'My App (dev)';
         return json;
-      }
-    })
-  ]
+      },
+    }),
+  ],
 });
 ```
 
-### Dev Mode
-- Served at: `http://localhost:5173/manifest.json`
-- Headers: `Cache-Control: no-store`, `ETag`, `Vary: If-None-Match`
-- Always reflects the latest config.
+Reference it from your HTML:
 
-### Build Mode
-- `manifest.json` is emitted into your Vite bundle.
-- Optionally mirrored to `outputDir` (like `public/manifest.json`).
+```html
+<link rel="manifest" href="/manifest.json" />
+```
 
----
-
-## ⚙️ Options
-
-| Option                   | Type                         | Default       | Description |
-|--------------------------|------------------------------|---------------|-------------|
-| `outputDir`              | `string \| false`            | `false`       | Mirror manifest file to disk (useful for static hosting) |
-| `filename`               | `string`                     | `manifest.json` | Output filename |
-| `name` / `short_name`    | `string`                     | `"My App"` / `"App"` | App display names |
-| `description`            | `string`                     | –             | Description of the PWA |
-| `start_url` / `scope`    | `string`                     | `"/"`         | Entry point & navigation scope |
-| `id`                     | `string`                     | `"/"`         | App ID (leave as string; no forced slash) |
-| `display`                | `"standalone" \| ...`        | `"standalone"`| Display mode |
-| `orientation`            | `"portrait" \| ...`          | –             | Screen orientation |
-| `background_color`       | `string`                     | `theme_color` | Splash screen background |
-| `theme_color`            | `string`                     | `"#0a131b"`   | Theme color |
-| `icons`                  | `ManifestIcon[]`             | default 192/512 maskable icons | Icons |
-| `screenshots`            | `Screenshot[]`               | –             | Screenshots for app stores |
-| `extra`                  | `Record<string, unknown>`    | –             | Extra JSON fields |
-| `includeBuildMeta`       | `boolean`                    | `true`        | Add `pkgVersion`, `version`, `buildTime` |
-| `transform`              | `(json, ctx) => json`        | –             | Hook to customize final manifest JSON |
+| Phase | Behavior |
+|-------|----------|
+| **dev** (`vite`) | Served at the `manifest.json` route **under your Vite `base`** with `Cache-Control: no-store` + weak `ETag` (304 on `If-None-Match`). |
+| **build** (`vite build`) | Emitted as a build asset to the root of your build `outDir`. |
+| **`outputDir`** | Also written to disk (dev & build), skipped when unchanged. |
 
 ---
 
-## 🛠️ Example Output
+## Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `filename` | `string` | `"manifest.json"` | Output filename. |
+| `outputDir` | `string \| false` | `false` | Mirror the manifest to this directory on disk. |
+| `name` / `short_name` | `string` | `"My App"` / `"App"` | Display names. |
+| `description` | `string` | — | App description. |
+| `lang` / `dir` | `string` / `"ltr" \| "rtl"` | `"en"` / `"ltr"` | Language & direction. |
+| `start_url` / `scope` / `id` | `string` | `"/"` | Each is normalized to a **leading slash**. |
+| `display` | `"standalone" \| "fullscreen" \| "minimal-ui" \| "browser"` | `"standalone"` | Display mode. |
+| `orientation` | `"any" \| "portrait" \| "landscape"` | — | Orientation. |
+| `background_color` | `string` | falls back to `theme_color` | Splash background. |
+| `theme_color` | `string` | `"#0a131b"` | Theme color. |
+| `categories` | `string[]` | — | App store categories. |
+| `prefer_related_applications` / `related_applications` | — | — | Native app hints. |
+| `protocol_handlers` | `Array<{ protocol; url }>` | — | Protocol handlers. |
+| `icons` | `ManifestIcon[]` | 192/512 maskable | Icons (normalized + de-duped). |
+| `screenshots` | `Screenshot[]` | — | Screenshots. |
+| `extra` | `Record<string, unknown>` | — | Extra fields merged into the manifest. |
+| `includeBuildMeta` | `boolean` | `true` | Add `pkgVersion`, `version`, `buildTime`, `mode`. |
+| `transform` | `(json, { mode }) => json` | — | Final transform over the assembled manifest. |
+
+> **Note:** `start_url`, `scope`, and `id` are always normalized to begin with `/`. Fields left `undefined` are omitted from the output.
+
+### Types
+
+```ts
+type ManifestIcon = {
+  src: string;
+  sizes: string;
+  type?: string;
+  purpose?: 'any' | 'maskable' | 'monochrome' | 'any maskable';
+};
+
+type Screenshot = {
+  src: string;
+  sizes?: string;
+  type?: string;
+  label?: string;
+  form_factor?: 'wide' | 'narrow';
+};
+```
+
+---
+
+## Build metadata
+
+With `includeBuildMeta` (default `true`) the plugin appends:
+
+| Field | Source |
+|-------|--------|
+| `version` | nearest git **tag**, else `git describe`, else short commit, else `pkgVersion`. |
+| `pkgVersion` | `version` from your `package.json`. |
+| `buildTime` | ISO timestamp of the build. |
+| `mode` | `"development"` in dev, `"production"` in build. |
+
+> Git is detected via a statically-imported `execSync` (not a dynamic `require`), so detection works correctly in **both** the ESM and CJS builds. Outside a git work tree these fields simply fall back to `pkgVersion`.
+
+### Example output
 
 ```json
 {
-  "lang": "fa",
-  "dir": "rtl",
+  "lang": "en",
+  "dir": "ltr",
   "name": "My App",
   "short_name": "App",
+  "description": "Example PWA with Vite",
   "start_url": "/",
   "scope": "/",
   "id": "/",
@@ -112,21 +151,15 @@ export default defineConfig({
     { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
-  "pkgVersion": "0.1.0",
-  "version": "abc1234",
-  "buildTime": "2025-09-09T13:45:00.000Z"
+  "pkgVersion": "1.4.0",
+  "version": "v1.4.0",
+  "buildTime": "2025-09-09T13:45:00.000Z",
+  "mode": "production"
 }
 ```
 
 ---
 
-## 🤝 Contributing
+## License
 
-Issues and PRs are welcome!  
-Please file bugs or feature requests here: [issues](https://github.com/dev-zarghami/vite-plugin-pwa-manifest/issues).
-
----
-
-## 📄 License
-
-[MIT](LICENSE) © 2025
+[MIT](./LICENSE) © dev.zarghami
